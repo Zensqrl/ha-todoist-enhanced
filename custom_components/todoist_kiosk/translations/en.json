@@ -1,0 +1,30 @@
+{
+  "title": "Todoist Kiosk",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect Todoist",
+        "description": "Enter your Todoist personal API token. The token remains on the Home Assistant backend.",
+        "data": {
+          "api_token": "API token"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect Todoist",
+        "description": "Todoist rejected the current token. Enter a replacement API token.",
+        "data": {
+          "api_token": "API token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to Todoist",
+      "invalid_auth": "Todoist rejected the API token",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "reauth_successful": "Todoist was reconnected successfully",
+      "single_instance_allowed": "Only one Todoist Kiosk account is currently supported"
+    }
+  }
+}
