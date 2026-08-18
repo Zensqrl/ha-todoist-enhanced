@@ -57,6 +57,7 @@ from custom_components.todoist_kiosk.websocket import (
     websocket_complete_task,
     websocket_filters,
     websocket_quick_add,
+    websocket_sources,
     websocket_tasks,
 )
 
@@ -78,6 +79,7 @@ class FakeApi:
         self.query: str | None = None
         self.closed_id: str | None = None
         self.quick_text: str | None = None
+        self.project_id: str | None = None
         self.error: Exception | None = None
 
     async def get_tasks_by_filter(self, query: str) -> list[dict[str, Any]]:
@@ -85,6 +87,12 @@ class FakeApi:
             raise self.error
         self.query = query
         return [{"id": "t1", "content": "Task", "project_id": "p1"}]
+
+    async def get_tasks_by_project(self, project_id: str) -> list[dict[str, Any]]:
+        if self.error:
+            raise self.error
+        self.project_id = project_id
+        return [{"id": "t1", "content": "Task", "project_id": project_id}]
 
     async def close_task(self, task_id: str) -> None:
         self.closed_id = task_id
@@ -144,6 +152,19 @@ class WebsocketTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(missing.error[1], "invalid_filter")
 
+        multiple = FakeConnection()
+        await websocket_tasks(
+            self.hass,
+            multiple,
+            {
+                "id": 11,
+                "type": "todoist_kiosk/tasks",
+                "filter": "today",
+                "project_id": "p1",
+            },
+        )
+        self.assertEqual(multiple.error[1], "invalid_filter")
+
     async def test_api_error_code_is_stable(self) -> None:
         self.api.error = TodoistInvalidFilterError("Invalid query")
         connection = FakeConnection()
@@ -151,6 +172,54 @@ class WebsocketTests(unittest.IsolatedAsyncioTestCase):
             self.hass, connection, {"id": 4, "type": "todoist_kiosk/tasks", "filter": "("}
         )
         self.assertEqual(connection.error, (4, "invalid_filter", "Invalid query"))
+
+    async def test_project_selector_and_missing_project(self) -> None:
+        connection = FakeConnection()
+        await websocket_tasks(
+            self.hass,
+            connection,
+            {"id": 8, "type": "todoist_kiosk/tasks", "project_id": "p1"},
+        )
+        self.assertEqual(self.api.project_id, "p1")
+        self.assertEqual(connection.result[1]["tasks"][0]["project_name"], "Home")
+
+        missing = FakeConnection()
+        await websocket_tasks(
+            self.hass,
+            missing,
+            {"id": 9, "type": "todoist_kiosk/tasks", "project_id": "deleted"},
+        )
+        self.assertEqual(missing.error[1], "project_not_found")
+
+    async def test_sources_are_grouped_and_alphabetical(self) -> None:
+        snapshot = MetadataSnapshot.build(
+            [TodoistProject("p2", "Work"), TodoistProject("p1", "home")],
+            [],
+            [
+                TodoistFilter("f2", "Tomorrow", "tomorrow"),
+                TodoistFilter("f1", "Agenda", "today"),
+            ],
+        )
+        runtime = types.SimpleNamespace(
+            api=self.api, coordinator=FakeCoordinator(snapshot)
+        )
+        connection = FakeConnection()
+
+        await websocket_sources(
+            FakeHass(runtime),
+            connection,
+            {"id": 10, "type": "todoist_kiosk/sources"},
+        )
+
+        self.assertEqual(
+            connection.result[1]["sources"],
+            [
+                {"kind": "project", "id": "p1", "name": "home"},
+                {"kind": "project", "id": "p2", "name": "Work"},
+                {"kind": "saved_filter", "id": "f1", "name": "Agenda"},
+                {"kind": "saved_filter", "id": "f2", "name": "Tomorrow"},
+            ],
+        )
 
     async def test_mutations_use_task_id_and_quick_add_text(self) -> None:
         complete = FakeConnection()
@@ -184,7 +253,7 @@ class WebsocketTests(unittest.IsolatedAsyncioTestCase):
 
         registered_commands.clear()
         async_register_websocket_commands(self.hass)
-        self.assertEqual(len(registered_commands), 5)
+        self.assertEqual(len(registered_commands), 6)
 
 
 if __name__ == "__main__":

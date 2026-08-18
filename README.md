@@ -34,6 +34,24 @@ Install the companion [`todoist-task-flow`](https://github.com/Zensqrl/todoist-t
 
 ## Card configuration
 
+The card loads all active Todoist projects and saved filters from the integration and presents them in one runtime selector. Projects are labeled `Project: <name>` and saved or card-defined filters are labeled `Filter: <name>`.
+
+Configure named raw Todoist queries and a stable default source like this:
+
+```yaml
+type: custom:todoist-kiosk-card
+title: Tasks
+raw_filters:
+  - id: month_ahead
+    name: Month Ahead
+    query: "due before: first day"
+default_source:
+  kind: raw_filter
+  id: month_ahead
+```
+
+`kind` can be `project`, `saved_filter`, or `raw_filter`. Project and saved-filter IDs come from Todoist; the visual editor generates raw-filter IDs automatically. Runtime choices are deliberately transient, so reloading the dashboard returns to `default_source`. Quick Add continues to use the text entered by the user and is not redirected by the displayed source.
+
 The first target filter from the implementation brief can be configured directly:
 
 ```yaml
@@ -61,7 +79,7 @@ title: Tasks
 filter_name: Kiosk Upcoming
 ```
 
-You can use `filter_id` instead of `filter_name`. IDs are required if saved filters have duplicate names. Configure only one selector; if more than one is present the card uses `filter_id`, then `filter_name`, then `filter`.
+You can use `filter_id` instead of `filter_name`. IDs are required if saved filters have duplicate names. The legacy `project_id`, `filter_id`, `filter_name`, and `filter` options remain supported when `default_source` is absent. Use `filter_label` to rename a legacy raw query in the selector; it defaults to `Custom Query`.
 
 ## WebSocket API
 
@@ -69,8 +87,9 @@ All commands use Home Assistant's authenticated WebSocket connection:
 
 | Command | Purpose |
 | --- | --- |
-| `todoist_kiosk/tasks` | Execute a raw or saved Todoist filter and return normalized tasks |
+| `todoist_kiosk/tasks` | List tasks for an exclusive `project_id`, `filter_id`, `filter_name`, or raw `filter` selector |
 | `todoist_kiosk/filters` | List active saved filters |
+| `todoist_kiosk/sources` | List active projects and saved filters as a unified source catalog |
 | `todoist_kiosk/complete_task` | Close a task by Todoist ID |
 | `todoist_kiosk/quick_add` | Create a task using Todoist natural-language parsing |
 | `todoist_kiosk/refresh_metadata` | Refresh projects, sections, and saved filters |

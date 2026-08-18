@@ -39,6 +39,10 @@ class TodoistNotFoundError(TodoistKioskError):
     code = "task_not_found"
 
 
+class TodoistProjectNotFoundError(TodoistKioskError):
+    code = "project_not_found"
+
+
 class TodoistQuickAddError(TodoistKioskError):
     code = "quick_add_failed"
 
@@ -90,6 +94,7 @@ class TodoistKioskApi:
         data: Mapping[str, Any] | None = None,
         json_body: Mapping[str, Any] | None = None,
         bad_request_error: type[TodoistKioskError] = TodoistKioskError,
+        not_found_error: type[TodoistKioskError] = TodoistNotFoundError,
     ) -> Any:
         headers = {
             "Authorization": f"Bearer {self._token}",
@@ -123,8 +128,8 @@ class TodoistKioskApi:
                         _safe_error_message(payload, "Todoist rejected the request")
                     )
                 if response.status == 404:
-                    raise TodoistNotFoundError(
-                        _safe_error_message(payload, "Todoist task was not found")
+                    raise not_found_error(
+                        _safe_error_message(payload, "Todoist resource was not found")
                     )
                 if response.status == 429:
                     retry_after: int | None = None
@@ -161,6 +166,7 @@ class TodoistKioskApi:
         *,
         params: Mapping[str, Any] | None = None,
         bad_request_error: type[TodoistKioskError] = TodoistKioskError,
+        not_found_error: type[TodoistKioskError] = TodoistNotFoundError,
     ) -> list[Mapping[str, Any]]:
         results: list[Mapping[str, Any]] = []
         cursor: str | None = None
@@ -177,6 +183,7 @@ class TodoistKioskApi:
                 path,
                 params=page_params,
                 bad_request_error=bad_request_error,
+                not_found_error=not_found_error,
             )
             if not isinstance(payload, Mapping) or not isinstance(
                 payload.get("results"), list
@@ -204,6 +211,17 @@ class TodoistKioskApi:
             "/tasks/filter",
             params={"query": query},
             bad_request_error=TodoistInvalidFilterError,
+        )
+
+    async def get_tasks_by_project(
+        self, project_id: str
+    ) -> list[Mapping[str, Any]]:
+        """Return every active task in a project across all cursor pages."""
+        return await self._get_paginated(
+            "/tasks",
+            params={"project_id": project_id},
+            bad_request_error=TodoistProjectNotFoundError,
+            not_found_error=TodoistProjectNotFoundError,
         )
 
     async def get_projects(self) -> list[TodoistProject]:

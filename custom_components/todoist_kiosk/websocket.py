@@ -19,6 +19,7 @@ from .const import (
     WS_FILTERS,
     WS_QUICK_ADD,
     WS_REFRESH_METADATA,
+    WS_SOURCES,
     WS_TASKS,
 )
 from .models import normalize_task, resolve_saved_filter
@@ -62,20 +63,27 @@ def _send_api_error(
         vol.Exclusive("filter_name", "selector"): vol.All(
             str, vol.Length(min=1, max=256)
         ),
+        vol.Exclusive("project_id", "selector"): vol.All(
+            str, vol.Length(min=1, max=TASK_ID_MAX_LENGTH)
+        ),
     }
 )
 @websocket_api.async_response
 async def websocket_tasks(
     hass: HomeAssistant, connection: Any, msg: dict[str, Any]
 ) -> None:
-    """Return normalized tasks matching a raw or saved Todoist filter."""
+    """Return normalized tasks matching a project or Todoist filter."""
     runtime = _get_runtime(hass)
     if runtime is None:
         _send_integration_not_loaded(connection, msg)
         return
-    if not any(key in msg for key in ("filter", "filter_id", "filter_name")):
+    selectors = ("filter", "filter_id", "filter_name", "project_id")
+    selector_count = sum(key in msg for key in selectors)
+    if selector_count != 1:
         connection.send_error(
-            msg["id"], "invalid_filter", "A filter selector is required"
+            msg["id"],
+            "invalid_filter",
+            "Exactly one task source selector is required",
         )
         return
 
@@ -85,31 +93,73 @@ async def websocket_tasks(
         return
 
     try:
-        if "filter" in msg:
-            query = msg["filter"].strip()
-            if not query:
+        if "project_id" in msg:
+            project_id = msg["project_id"].strip()
+            if not project_id or project_id not in snapshot.projects_by_id:
                 connection.send_error(
-                    msg["id"], "invalid_filter", "Filter cannot be blank"
+                    msg["id"],
+                    "project_not_found",
+                    "Todoist project was not found",
                 )
                 return
+            raw_tasks = await runtime.api.get_tasks_by_project(project_id)
         else:
-            try:
-                query = resolve_saved_filter(
-                    snapshot,
-                    filter_id=msg.get("filter_id"),
-                    filter_name=msg.get("filter_name"),
-                ).query
-            except LookupError as err:
-                connection.send_error(msg["id"], "filter_not_found", str(err))
-                return
+            if "filter" in msg:
+                query = msg["filter"].strip()
+                if not query:
+                    connection.send_error(
+                        msg["id"], "invalid_filter", "Filter cannot be blank"
+                    )
+                    return
+            else:
+                try:
+                    query = resolve_saved_filter(
+                        snapshot,
+                        filter_id=msg.get("filter_id"),
+                        filter_name=msg.get("filter_name"),
+                    ).query
+                except LookupError as err:
+                    connection.send_error(msg["id"], "filter_not_found", str(err))
+                    return
 
-        raw_tasks = await runtime.api.get_tasks_by_filter(query)
+            raw_tasks = await runtime.api.get_tasks_by_filter(query)
         tasks = [normalize_task(task, snapshot) for task in raw_tasks]
     except TodoistKioskError as err:
         _send_api_error(hass, runtime, connection, msg, err)
         return
 
     connection.send_result(msg["id"], {"tasks": tasks})
+
+
+@websocket_api.websocket_command({vol.Required("type"): WS_SOURCES})
+@websocket_api.async_response
+async def websocket_sources(
+    hass: HomeAssistant, connection: Any, msg: dict[str, Any]
+) -> None:
+    """Return active projects and saved filters as a stable source catalog."""
+    runtime = _get_runtime(hass)
+    if runtime is None or runtime.coordinator.data is None:
+        _send_integration_not_loaded(connection, msg)
+        return
+
+    snapshot = runtime.coordinator.data
+    projects = sorted(
+        snapshot.projects_by_id.values(),
+        key=lambda project: (project.name.casefold(), project.id),
+    )
+    filters = sorted(
+        snapshot.filters_by_id.values(),
+        key=lambda saved_filter: (saved_filter.name.casefold(), saved_filter.id),
+    )
+    sources = [
+        {"kind": "project", "id": project.id, "name": project.name}
+        for project in projects
+    ]
+    sources.extend(
+        {"kind": "saved_filter", "id": saved_filter.id, "name": saved_filter.name}
+        for saved_filter in filters
+    )
+    connection.send_result(msg["id"], {"sources": sources})
 
 
 @websocket_api.websocket_command({vol.Required("type"): WS_FILTERS})
@@ -214,6 +264,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     """Register all Todoist Kiosk commands once during integration setup."""
     websocket_api.async_register_command(hass, websocket_tasks)
     websocket_api.async_register_command(hass, websocket_filters)
+    websocket_api.async_register_command(hass, websocket_sources)
     websocket_api.async_register_command(hass, websocket_complete_task)
     websocket_api.async_register_command(hass, websocket_quick_add)
     websocket_api.async_register_command(hass, websocket_refresh_metadata)

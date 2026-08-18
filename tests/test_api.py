@@ -11,6 +11,7 @@ from custom_components.todoist_kiosk.api import (
     TodoistInvalidFilterError,
     TodoistKioskApi,
     TodoistNotFoundError,
+    TodoistProjectNotFoundError,
     TodoistQuickAddError,
     TodoistRateLimitError,
     TodoistUnavailableError,
@@ -72,6 +73,31 @@ class TodoistKioskApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             session.requests[0][2]["headers"]["Authorization"], "Bearer secret"
         )
+
+    async def test_project_tasks_follow_all_cursor_pages(self) -> None:
+        session = FakeSession(
+            [
+                FakeResponse(200, {"results": [{"id": "one"}], "next_cursor": "c2"}),
+                FakeResponse(200, {"results": [{"id": "two"}], "next_cursor": None}),
+            ]
+        )
+        api = TodoistKioskApi(session, "secret")
+
+        tasks = await api.get_tasks_by_project("project-1")
+
+        self.assertEqual([task["id"] for task in tasks], ["one", "two"])
+        self.assertTrue(session.requests[0][1].endswith("/tasks"))
+        self.assertEqual(session.requests[0][2]["params"]["project_id"], "project-1")
+        self.assertEqual(session.requests[0][2]["params"]["limit"], 200)
+        self.assertEqual(session.requests[1][2]["params"]["cursor"], "c2")
+
+    async def test_missing_project_maps_400_and_404(self) -> None:
+        for status in (400, 404):
+            with self.subTest(status=status):
+                api = TodoistKioskApi(FakeSession([FakeResponse(status, {})]), "secret")
+                with self.assertRaises(TodoistProjectNotFoundError) as raised:
+                    await api.get_tasks_by_project("deleted")
+                self.assertEqual(raised.exception.code, "project_not_found")
 
     async def test_projects_and_sections_are_paginated_and_typed(self) -> None:
         session = FakeSession(

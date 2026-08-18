@@ -17,6 +17,7 @@ METADATA_UPDATE_INTERVAL = timedelta(minutes=30)
 
 WS_TASKS = f"{DOMAIN}/tasks"
 WS_FILTERS = f"{DOMAIN}/filters"
+WS_SOURCES = f"{DOMAIN}/sources"
 WS_COMPLETE_TASK = f"{DOMAIN}/complete_task"
 WS_QUICK_ADD = f"{DOMAIN}/quick_add"
 WS_REFRESH_METADATA = f"{DOMAIN}/refresh_metadata"
