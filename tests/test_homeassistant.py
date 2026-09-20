@@ -57,6 +57,22 @@ async def setup_entry(hass):
     return entry
 
 
+async def test_timezone_options(hass, mock_api):
+    entry = await setup_entry(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] == "form"
+    invalid = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"default_task_timezone": "invalid/zone"}
+    )
+    assert invalid["errors"] == {"default_task_timezone": "invalid_timezone"}
+    valid = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"default_task_timezone": "America/New_York"}
+    )
+    assert valid["type"] == "create_entry"
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert entry.runtime_data.backend.planning_timezone == "America/New_York"
+
+
 async def test_setup_service_catalog_mapping_and_unload(hass, mock_api):
     from homeassistant.helpers import entity_registry as er
 

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 
@@ -120,7 +123,7 @@ def resolve_saved_filter(
     return snapshot.filters_by_id[filter_ids[0]]
 
 
-def _normalize_due(value: Any) -> dict[str, Any] | None:
+def _normalize_due(value: Any, default_timezone: str) -> dict[str, Any] | None:
     """Normalize both current and older Todoist due object variants."""
     if not isinstance(value, Mapping):
         return None
@@ -131,11 +134,27 @@ def _normalize_due(value: Any) -> dict[str, Any] | None:
         raw_datetime = raw_date
         raw_date = raw_date[:10]
 
+    explicit_timezone = _string_or_none(value.get("timezone"))
+    offset = None
+    if raw_datetime:
+        try:
+            parsed = datetime.fromisoformat(raw_datetime)
+            if parsed.utcoffset() is not None:
+                offset = parsed.strftime("%z")
+        except ValueError:
+            pass
     return {
         "kind": "datetime" if raw_datetime else "date",
         "date": raw_date,
         "datetime": raw_datetime,
         "timezone": _string_or_none(value.get("timezone")),
+        "effective_timezone": explicit_timezone or offset or default_timezone,
+        "timezone_source": "todoist"
+        if explicit_timezone
+        else "offset"
+        if offset
+        else "default",
+        "is_floating": bool(raw_datetime and not explicit_timezone and not offset),
         "string": _string_or_none(value.get("string")),
         "is_recurring": value.get("is_recurring"),
         "lang": _string_or_none(value.get("lang")),
@@ -162,7 +181,7 @@ def _normalize_duration(value: Any) -> dict[str, Any] | None:
 
 
 def normalize_task(
-    value: Mapping[str, Any], metadata: MetadataSnapshot
+    value: Mapping[str, Any], metadata: MetadataSnapshot, default_timezone: str = "UTC"
 ) -> dict[str, Any]:
     """Convert a Todoist task into the card's versioned, stable contract."""
     task_id = str(value["id"])
@@ -197,9 +216,10 @@ def normalize_task(
         "display_priority": 5 - priority
         if type(priority) is int and 1 <= priority <= 4
         else None,
-        "due": _normalize_due(value.get("due")),
+        "due": _normalize_due(value.get("due"), default_timezone),
         "deadline": _normalize_deadline(value.get("deadline")),
         "duration": _normalize_duration(value.get("duration")),
+        **_effective_duration(value.get("duration"), labels),
         "is_completed": completed,
         "is_uncompletable": value.get("is_uncompletable"),
         "assignee_id": _string_or_none(
@@ -208,4 +228,34 @@ def normalize_task(
         "created_at": value.get("added_at", value.get("created_at")),
         "updated_at": value.get("updated_at"),
         "url": _string_or_none(value.get("url")),
+    }
+
+
+def _effective_duration(native: Any, labels: list[str] | None) -> dict[str, Any]:
+    """Infer only whole duration labels; conflicting estimates remain unknown."""
+    matches = []
+    for label in labels or []:
+        match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)(HR|M|D)", label, re.IGNORECASE)
+        if match:
+            amount = Decimal(match[1])
+            if amount > 0:
+                minutes = amount * {"M": 1, "HR": 60, "D": 1440}[match[2].upper()]
+                matches.append((label, minutes))
+    if native is not None:
+        return {
+            "effective_duration": _normalize_duration(native),
+            "duration_source": "native",
+            "duration_labels": [],
+        }
+    values = {minutes for _, minutes in matches}
+    return {
+        "effective_duration": {"amount": float(next(iter(values))), "unit": "minute"}
+        if len(values) == 1
+        else None,
+        "duration_source": "label"
+        if len(values) == 1
+        else "ambiguous"
+        if values
+        else "unknown",
+        "duration_labels": [label for label, _ in matches],
     }

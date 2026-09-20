@@ -113,6 +113,7 @@ class TaskBackend:
             "contract_version": 1,
             "account_id": self.account_id,
             "planning_timezone": self.planning_timezone,
+            "default_task_timezone": self.planning_timezone,
             "requested_at": requested,
             "attempted_at": item["attempted_at"],
             "fetched_at": item["fetched_at"],
@@ -230,7 +231,7 @@ class TaskBackend:
         )
         if payload is not None:
             tasks = [
-                normalize_task(t, snapshot)
+                normalize_task(t, snapshot, self.planning_timezone)
                 for t in payload["items"]
                 if not t.get("checked")
                 and not t.get("is_completed")

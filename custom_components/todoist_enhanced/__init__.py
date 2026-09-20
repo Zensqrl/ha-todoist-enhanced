@@ -41,7 +41,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryAuthFailed(err.safe_message) from err
     except TodoistEnhancedError as err:
         raise ConfigEntryNotReady(err.safe_message) from err
-    backend = TaskBackend(api, entry.entry_id, hass.config.time_zone)
+    backend = TaskBackend(
+        api,
+        entry.entry_id,
+        entry.options.get("default_task_timezone") or hass.config.time_zone,
+    )
     runtime = TodoistEnhancedRuntimeData(backend, entry)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime
     entry.runtime_data = runtime

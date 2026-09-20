@@ -95,14 +95,29 @@ API is not a transactional snapshot; simultaneous upstream edits can affect page
 
 Due objects expose `kind: date|datetime`, `date`, `datetime`, `timezone`, `string`
 (Todoist recurrence/date expression), `is_recurring` (nullable), and `lang`.
-Timed strings retain their original offset and supplied named timezone. A timed
-value without either is unresolved; do not invent a UTC offset. Date-only values
+Timed strings retain their original offset and supplied named timezone. Floating
+times use **Default Task Timezone**, configurable through the integration options.
+A blank option follows Home Assistant's timezone; existing installations inherit it
+without reconfiguration. `default_task_timezone` in the envelope reports the resolved
+setting; `planning_timezone` remains as a compatibility alias. Due objects expose
+`effective_timezone`, `timezone_source` (`todoist`, `offset`, or `default`) and
+`is_floating`. Explicit named zones or timestamp offsets take precedence. Raw
+`timezone` and `datetime` remain unchanged; no UTC conversion is manufactured.
+Consumers must handle ambiguous/nonexistent DST wall times when converting to an instant.
+Date-only values
 are interpreted as dates in `planning_timezone`, never midnight appointments.
 Deadline objects expose `kind: date`, `date`, `lang`. They remain distinct from due.
 
 Missing duration is not zero. Missing recurrence/actionability flags are not false.
-Raw duration and arbitrary labels are independent facts: conflict resolution and
-suitability interpretation belong to the dashboard's explicit policy.
+Raw `duration` and arbitrary labels remain independent facts. `effective_duration`
+uses native duration first. Only when native duration is absent, whole labels matching
+a positive number followed by M, HR, or D (case-insensitive, decimal values supported)
+are interpreted as minutes, hours, or 24-hour days. Examples: 15M, 1.5HR, 1D.
+Substrings, spaces, negative and zero estimates are not matched. Inferred amounts
+are returned in minutes. Equivalent labels (1HR and 60M) agree; conflicting labels
+produce null rather than guessing. `duration_source` is native, label, ambiguous,
+or unknown; `duration_labels` lists matched labels when inference is used. No labels
+or scheduled dates are created or changed.
 
 Completed, deleted, and explicitly API-identified uncompletable items are excluded
 and counted. The current published API does not guarantee an uncompletable flag;

@@ -1,5 +1,9 @@
 {
   "title": "Todoist Enhanced",
+  "options": {
+    "step": {"init": {"title": "Task defaults", "description": "Leave blank to follow Home Assistant's timezone. Otherwise enter an IANA timezone such as America/New_York. Explicit task timezones are preserved.", "data": {"default_task_timezone": "Default Task Timezone"}}},
+    "error": {"invalid_timezone": "Enter a valid IANA timezone, such as America/New_York"}
+  },
   "config": {
     "step": {
       "user": {

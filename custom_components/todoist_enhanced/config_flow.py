@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import probatio as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import TodoistAuthError, TodoistEnhancedApi, TodoistEnhancedError
@@ -17,6 +19,11 @@ class TodoistEnhancedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Configure a Todoist personal API token."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        return TodoistEnhancedOptionsFlow()
 
     async def _async_validate(self, token: str) -> None:
         api = TodoistEnhancedApi(async_get_clientsession(self.hass), token)
@@ -79,6 +86,38 @@ class TodoistEnhancedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reauth_confirm",
             data_schema=vol.Schema(
                 {vol.Required(CONF_API_TOKEN): vol.All(str, vol.Length(min=1, max=512))}
+            ),
+            errors=errors,
+        )
+
+
+class TodoistEnhancedOptionsFlow(config_entries.OptionsFlow):
+    """Allow existing installations to override the HA timezone."""
+
+    async def async_step_init(self, user_input=None):
+        errors = {}
+        if user_input is not None:
+            timezone = user_input.get("default_task_timezone", "").strip()
+            try:
+                if timezone:
+                    ZoneInfo(timezone)
+            except (ZoneInfoNotFoundError, ValueError):
+                errors["default_task_timezone"] = "invalid_timezone"
+            else:
+                return self.async_create_entry(
+                    title="", data={"default_task_timezone": timezone}
+                )
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        "default_task_timezone",
+                        default=self.config_entry.options.get(
+                            "default_task_timezone", ""
+                        ),
+                    ): str
+                }
             ),
             errors=errors,
         )
