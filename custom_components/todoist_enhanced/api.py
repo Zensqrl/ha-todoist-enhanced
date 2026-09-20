@@ -17,7 +17,7 @@ class AsyncHttpSession(Protocol):
     def request(self, method: str, url: str, **kwargs: Any) -> Any: ...
 
 
-class TodoistKioskError(Exception):
+class TodoistEnhancedError(Exception):
     """Base class for safe, frontend-facing Todoist errors."""
 
     code = "unknown_error"
@@ -27,27 +27,27 @@ class TodoistKioskError(Exception):
         self.safe_message = message
 
 
-class TodoistAuthError(TodoistKioskError):
+class TodoistAuthError(TodoistEnhancedError):
     code = "auth_failed"
 
 
-class TodoistInvalidFilterError(TodoistKioskError):
+class TodoistInvalidFilterError(TodoistEnhancedError):
     code = "invalid_filter"
 
 
-class TodoistNotFoundError(TodoistKioskError):
+class TodoistNotFoundError(TodoistEnhancedError):
     code = "task_not_found"
 
 
-class TodoistProjectNotFoundError(TodoistKioskError):
+class TodoistProjectNotFoundError(TodoistEnhancedError):
     code = "project_not_found"
 
 
-class TodoistQuickAddError(TodoistKioskError):
+class TodoistQuickAddError(TodoistEnhancedError):
     code = "quick_add_failed"
 
 
-class TodoistRateLimitError(TodoistKioskError):
+class TodoistRateLimitError(TodoistEnhancedError):
     code = "rate_limited"
 
     def __init__(self, message: str, retry_after: int | None = None) -> None:
@@ -55,23 +55,27 @@ class TodoistRateLimitError(TodoistKioskError):
         self.retry_after = retry_after
 
 
-class TodoistUnavailableError(TodoistKioskError):
+class TodoistUnavailableError(TodoistEnhancedError):
     code = "todoist_unavailable"
 
 
-class TodoistProtocolError(TodoistKioskError):
+class TodoistProtocolError(TodoistEnhancedError):
     """Todoist returned a successful but unexpected response."""
 
 
+class PaginatedItems(list):
+    """Complete cursor traversal with per-request provenance."""
+
+    pages: int = 0
+    duplicates: int = 0
+
+
 def _safe_error_message(payload: Any, fallback: str) -> str:
-    if isinstance(payload, Mapping):
-        error = payload.get("error")
-        if isinstance(error, str) and error.strip():
-            return error.strip()[:300]
+    # Upstream messages can echo submitted content. Never expose them.
     return fallback
 
 
-class TodoistKioskApi:
+class TodoistEnhancedApi:
     """Small typed wrapper around only the endpoints needed by the kiosk."""
 
     def __init__(
@@ -93,8 +97,8 @@ class TodoistKioskApi:
         params: Mapping[str, Any] | None = None,
         data: Mapping[str, Any] | None = None,
         json_body: Mapping[str, Any] | None = None,
-        bad_request_error: type[TodoistKioskError] = TodoistKioskError,
-        not_found_error: type[TodoistKioskError] = TodoistNotFoundError,
+        bad_request_error: type[TodoistEnhancedError] = TodoistEnhancedError,
+        not_found_error: type[TodoistEnhancedError] = TodoistNotFoundError,
     ) -> Any:
         headers = {
             "Authorization": f"Bearer {self._token}",
@@ -148,27 +152,27 @@ class TodoistKioskApi:
                 if response.status >= 500:
                     raise TodoistUnavailableError("Todoist is temporarily unavailable")
                 if response.status < 200 or response.status >= 300:
-                    raise TodoistKioskError(
+                    raise TodoistEnhancedError(
                         _safe_error_message(payload, "Todoist request failed")
                     )
                 return payload
-        except TodoistKioskError:
+        except TodoistEnhancedError:
             raise
         except Exception as err:
             # Do not include the request or token in the exception message.
-            raise TodoistUnavailableError(
-                "Unable to communicate with Todoist"
-            ) from err
+            raise TodoistUnavailableError("Unable to communicate with Todoist") from err
 
     async def _get_paginated(
         self,
         path: str,
         *,
         params: Mapping[str, Any] | None = None,
-        bad_request_error: type[TodoistKioskError] = TodoistKioskError,
-        not_found_error: type[TodoistKioskError] = TodoistNotFoundError,
+        bad_request_error: type[TodoistEnhancedError] = TodoistEnhancedError,
+        not_found_error: type[TodoistEnhancedError] = TodoistNotFoundError,
+        strings: bool = False,
     ) -> list[Mapping[str, Any]]:
-        results: list[Mapping[str, Any]] = []
+        results = PaginatedItems()
+        ids: set[str] = set()
         cursor: str | None = None
         seen_cursors: set[str] = set()
 
@@ -190,10 +194,26 @@ class TodoistKioskApi:
             ):
                 raise TodoistProtocolError("Todoist returned an unexpected response")
 
-            results.extend(
-                item for item in payload["results"] if isinstance(item, Mapping)
-            )
+            results.pages += 1
+            for item in payload["results"]:
+                if strings and isinstance(item, str):
+                    item_id = item
+                elif (
+                    not strings
+                    and isinstance(item, Mapping)
+                    and item.get("id") is not None
+                ):
+                    item_id = str(item["id"])
+                else:
+                    raise TodoistProtocolError("Invalid item in Todoist response")
+                if item_id in ids:
+                    results.duplicates += 1
+                    continue
+                ids.add(item_id)
+                results.append(item)
             next_cursor = payload.get("next_cursor")
+            if next_cursor is not None and not isinstance(next_cursor, str):
+                raise TodoistProtocolError("Invalid pagination cursor")
             if not next_cursor:
                 return results
 
@@ -201,6 +221,18 @@ class TodoistKioskApi:
             if cursor in seen_cursors:
                 raise TodoistProtocolError("Todoist pagination did not advance")
             seen_cursors.add(cursor)
+            if results.pages >= 1000:
+                raise TodoistProtocolError("Todoist pagination safety limit reached")
+
+    async def get_tasks(self) -> list[Mapping[str, Any]]:
+        """All active tasks, including undated and future tasks."""
+        return await self._get_paginated("/tasks")
+
+    async def get_labels(self) -> list[Mapping[str, Any]]:
+        return await self._get_paginated("/labels")
+
+    async def get_shared_labels(self) -> list[str]:
+        return await self._get_paginated("/labels/shared", strings=True)
 
     async def validate_token(self) -> None:
         """Make a small authenticated request used by the config flow."""
@@ -213,9 +245,7 @@ class TodoistKioskApi:
             bad_request_error=TodoistInvalidFilterError,
         )
 
-    async def get_tasks_by_project(
-        self, project_id: str
-    ) -> list[Mapping[str, Any]]:
+    async def get_tasks_by_project(self, project_id: str) -> list[Mapping[str, Any]]:
         """Return every active task in a project across all cursor pages."""
         return await self._get_paginated(
             "/tasks",
@@ -226,10 +256,14 @@ class TodoistKioskApi:
 
     async def get_projects(self) -> list[TodoistProject]:
         values = await self._get_paginated("/projects")
+        if any(not isinstance(value.get("name"), str) for value in values):
+            raise TodoistProtocolError("Invalid project metadata")
         return [TodoistProject.from_api(value) for value in values]
 
     async def get_sections(self) -> list[TodoistSection]:
         values = await self._get_paginated("/sections")
+        if any(not isinstance(value.get("name"), str) for value in values):
+            raise TodoistProtocolError("Invalid section metadata")
         return [TodoistSection.from_api(value) for value in values]
 
     async def get_saved_filters(self) -> list[TodoistFilter]:
@@ -243,6 +277,16 @@ class TodoistKioskApi:
         ):
             raise TodoistProtocolError("Todoist returned an unexpected response")
 
+        for value in payload["filters"]:
+            if not isinstance(value, Mapping):
+                raise TodoistProtocolError("Invalid saved filter metadata")
+            if not value.get("is_deleted") and (
+                value.get("id") is None
+                or not isinstance(value.get("name"), str)
+                or not isinstance(value.get("query"), str)
+                or not value["query"]
+            ):
+                raise TodoistProtocolError("Invalid saved filter metadata")
         return [
             TodoistFilter.from_api(value)
             for value in payload["filters"]
@@ -262,8 +306,6 @@ class TodoistKioskApi:
             json_body={"text": text, "meta": True},
             bad_request_error=TodoistQuickAddError,
         )
-        if payload is None:
-            return {}
-        if not isinstance(payload, Mapping):
+        if not isinstance(payload, Mapping) or payload.get("id") is None:
             raise TodoistProtocolError("Todoist returned an unexpected response")
         return payload

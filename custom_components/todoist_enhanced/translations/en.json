@@ -1,5 +1,5 @@
 {
-  "title": "Todoist Kiosk",
+  "title": "Todoist Enhanced",
   "config": {
     "step": {
       "user": {
@@ -24,7 +24,7 @@
     },
     "abort": {
       "reauth_successful": "Todoist was reconnected successfully",
-      "single_instance_allowed": "Only one Todoist Kiosk account is currently supported"
+      "single_instance_allowed": "Only one Todoist Enhanced account is currently supported"
     }
   }
 }

@@ -1,11 +1,12 @@
 {
-  "domain": "todoist_kiosk",
-  "name": "Todoist Kiosk",
+  "domain": "todoist_enhanced",
+  "name": "Todoist Enhanced",
   "codeowners": ["@Zensqrl"],
   "config_flow": true,
   "documentation": "https://github.com/Zensqrl/ha-todoist-enhanced",
   "integration_type": "service",
   "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/Zensqrl/ha-todoist-enhanced/issues",
   "single_config_entry": true,
-  "version": "0.1.0"
+  "version": "0.1.1"
 }

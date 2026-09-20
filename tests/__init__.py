@@ -1,1 +1,1 @@
-"""Tests for Todoist Kiosk."""
+"""Tests for Todoist Enhanced."""

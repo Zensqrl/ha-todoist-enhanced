@@ -1,121 +1,86 @@
-# Todoist Kiosk for Home Assistant
+# Todoist Enhanced for Home Assistant
 
-Todoist Kiosk is a custom Home Assistant integration that keeps Todoist credentials and API traffic on the Home Assistant backend. Its companion Lovelace card can run native Todoist filters, display richer task metadata, complete tasks safely (including recurring tasks), and create tasks with Todoist Quick Add.
+Reliable Todoist facts for a Daily Decision Dashboard: all active tasks, native
+filters, rich metadata, labels/catalogs, and explicit freshness/completeness.
+Credentials and Todoist API traffic remain on the Home Assistant backend.
 
-## Architecture
+This is a **helper integration**, not a replacement for native Todoist. It does not
+create or modify native `todo` or calendar entities. Ranking policy, scheduling and
+the future Bubble-style dashboard card are separate work.
+
+## Install
+
+Requires Home Assistant 2026.9 or newer. Add `Zensqrl/ha-todoist-enhanced` to HACS as
+an Integration repository, download, restart HA, then add **Todoist Enhanced** in
+Settings → Devices & services. Enter your Todoist personal API token in that form;
+do not put it in dashboard YAML or send it to a chat.
+
+Manual installation: copy `custom_components/todoist_enhanced` into HA's
+`custom_components` directory and restart. One account is supported.
+
+Build a clean manual-install ZIP with `python scripts/build_release.py`. Extract
+its `custom_components` folder into the HA configuration directory, then restart
+and add the integration through Settings. Generated ZIPs are excluded from Git.
+
+The new domain is `todoist_enhanced`. For a previous experimental installation with
+a differently named domain, remove only that experimental config entry through HA,
+install this version, and configure it again. Do not edit `.storage` or remove the
+native Todoist entry. No automatic cross-domain migration is provided. Update custom
+API consumers to the documented v1 envelope; the earlier companion card is not a
+supported frontend for this release.
+
+## Read dashboard data
+
+WebSocket, using the already-authenticated Home Assistant connection:
+
+```json
+{"id":1,"type":"todoist_enhanced/tasks","force_refresh":true}
+```
+
+No selector means all active tasks, including undated and future tasks.
+
+```json
+{"id":2,"type":"todoist_enhanced/catalogs"}
+```
+
+HA actions `todoist_enhanced.get_tasks` and `todoist_enhanced.get_catalogs` provide
+the same structured responses to scripts and automations. Completion and Quick Add
+are separate write operations. See [the complete contract](docs/data-contract.md)
+for selectors, permissions, freshness, errors, field semantics and examples.
+
+The original upcoming view remains supported as a filter:
 
 ```text
-Todoist API v1 <-- bearer token -- Home Assistant todoist_kiosk integration
-                                      ^
-                                      | authenticated HA WebSocket
-                                      v
-                               Todoist Kiosk card
+(due before: first day | deadline before: first day) & (!#Daily Checklist | today)
 ```
 
-The browser never receives the Todoist API token and never calls `api.todoist.com`.
+Do not use that filtered view as the only source for task suitability decisions.
+It can omit actionable undated tasks.
 
-## Installation
+## Single-package frontend architecture
 
-### Integration
+This repository owns the integration and its future bundled card. No separate card
+installation is required to use the data API. The Bubble-style card is not implemented
+yet. Its eventual compiled asset belongs under
+`custom_components/todoist_enhanced/frontend/`; source/build files can live at the
+repository root. See [frontend packaging](docs/frontend-packaging.md).
 
-With HACS, add this repository as a custom **Integration** repository and install **Todoist Kiosk**. For a manual installation, copy `custom_components/todoist_kiosk` into the Home Assistant configuration directory under `custom_components/`, then restart Home Assistant.
+## Development
 
-In Home Assistant:
+Use Linux and Python 3.14 with the pinned Home Assistant test environment:
 
-1. Open **Settings → Devices & services → Add integration**.
-2. Search for **Todoist Kiosk**.
-3. Enter the personal API token from Todoist **Settings → Integrations → Developer**.
-
-The setup flow validates the token before storing the config entry. One Todoist account is supported in the initial version.
-
-### Card
-
-Install the companion [`todoist-task-flow`](https://github.com/Zensqrl/todoist-task-flow) repository through HACS Frontend, or copy its `todoist-task-flow.js` file to `/config/www/` and register `/local/todoist-task-flow.js` as a JavaScript module dashboard resource.
-
-## Card configuration
-
-The card loads all active Todoist projects and saved filters from the integration and presents them in one runtime selector. Projects are labeled `Project: <name>` and saved or card-defined filters are labeled `Filter: <name>`.
-
-Configure named raw Todoist queries and a stable default source like this:
-
-```yaml
-type: custom:todoist-kiosk-card
-title: Tasks
-raw_filters:
-  - id: month_ahead
-    name: Month Ahead
-    query: "due before: first day"
-default_source:
-  kind: raw_filter
-  id: month_ahead
+```sh
+pip install -r requirements-test.txt
+pytest -q
 ```
 
-`kind` can be `project`, `saved_filter`, or `raw_filter`. Project and saved-filter IDs come from Todoist; the visual editor generates raw-filter IDs automatically. Runtime choices are deliberately transient, so reloading the dashboard returns to `default_source`. Quick Add continues to use the text entered by the user and is not redirected by the displayed source.
+Tests include API fixtures, cursor failures/deduplication, raw metadata semantics,
+cache recovery and concurrency, and actual HA service/WebSocket/config-entry tests.
+They do not replace live account validation. No tests intentionally create real
+Todoist tasks or labels.
 
-The first target filter from the implementation brief can be configured directly:
-
-```yaml
-type: custom:todoist-kiosk-card
-title: Tasks
-filter: >-
-  (due before: first day | deadline before: first day) &
-  (!#Daily Checklist | today)
-show_project: true
-show_due: true
-show_deadline: true
-show_priority: true
-show_labels: false
-allow_complete: true
-allow_quick_add: true
-```
-
-Todoist evaluates the filter expression. The integration does not implement or approximate Todoist's filter grammar.
-
-To keep the filter source of truth in Todoist, use a saved filter:
-
-```yaml
-type: custom:todoist-kiosk-card
-title: Tasks
-filter_name: Kiosk Upcoming
-```
-
-You can use `filter_id` instead of `filter_name`. IDs are required if saved filters have duplicate names. The legacy `project_id`, `filter_id`, `filter_name`, and `filter` options remain supported when `default_source` is absent. Use `filter_label` to rename a legacy raw query in the selector; it defaults to `Custom Query`.
-
-## WebSocket API
-
-All commands use Home Assistant's authenticated WebSocket connection:
-
-| Command | Purpose |
-| --- | --- |
-| `todoist_kiosk/tasks` | List tasks for an exclusive `project_id`, `filter_id`, `filter_name`, or raw `filter` selector |
-| `todoist_kiosk/filters` | List active saved filters |
-| `todoist_kiosk/sources` | List active projects and saved filters as a unified source catalog |
-| `todoist_kiosk/complete_task` | Close a task by Todoist ID |
-| `todoist_kiosk/quick_add` | Create a task using Todoist natural-language parsing |
-| `todoist_kiosk/refresh_metadata` | Refresh projects, sections, and saved filters |
-
-Project, section, and saved-filter metadata refresh every 30 minutes. Task results are fetched on demand by the card, every 10 minutes in the background, and immediately after mutations.
-
-## Development and validation
-
-The dependency-free backend unit suite covers pagination, saved filters, normalization, error mapping, close/Quick Add paths, and WebSocket command behavior:
-
-```bash
-python3 -m unittest discover -v
-```
-
-The card repository includes a Node smoke test:
-
-```bash
-node tests/card.test.js
-```
-
-Live validation still requires a Home Assistant instance and a Todoist account. In particular, manually compare the card results with the same filter in Todoist and verify both normal and recurring task completion.
-
-## Security and diagnostics
-
-- The API token is stored in the Home Assistant config entry only.
-- WebSocket messages never accept or return a Todoist token.
-- HTTP errors are translated to stable frontend-safe codes.
-- Diagnostics redact the token and report metadata counts only.
-- Task mutations use Todoist task IDs, never task titles.
+Current implementation keeps a small isolated async HTTP adapter. The official
+Todoist SDK provides many operations, but adding it now would introduce version
+coupling while still requiring saved-filter/catalog coverage and raw-field handling.
+The adapter can be replaced behind the shared backend without changing dashboard
+consumers. No separate Python package is necessary for this custom helper release.

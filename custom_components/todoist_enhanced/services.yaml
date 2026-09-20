@@ -1,0 +1,56 @@
+get_tasks:
+  name: Get tasks
+  description: Read active tasks with explicit freshness and completeness. No selector means all active tasks.
+  fields:
+    entry_id:
+      name: Account entry
+      selector:
+        text:
+    force_refresh:
+      name: Force refresh
+      default: false
+      selector:
+        boolean:
+    project_id:
+      name: Project ID (exclusive source selector)
+      selector:
+        text:
+    filter:
+      name: Raw Todoist query (exclusive source selector)
+      selector:
+        text:
+    filter_id:
+      name: Saved filter ID (exclusive source selector)
+      selector:
+        text:
+    filter_name:
+      name: Saved filter name (exclusive source selector)
+      selector:
+        text:
+get_catalogs:
+  name: Get catalogs
+  description: Read projects, sections, saved filters and personal/shared labels, including unused personal labels.
+  fields:
+    force_refresh:
+      default: false
+      selector:
+        boolean:
+refresh:
+  name: Refresh metadata
+  description: Force a metadata catalog refresh. Force-refresh Get tasks for a fresh task snapshot.
+complete_task:
+  name: Complete task
+  description: Complete by Todoist ID. Never automatically retry an ambiguous result; a recurring task can advance again.
+  fields:
+    task_id:
+      required: true
+      selector:
+        text:
+quick_add:
+  name: Quick Add
+  description: Create a task through Todoist natural-language parsing. Not redirected by the current dashboard filter.
+  fields:
+    text:
+      required: true
+      selector:
+        text:

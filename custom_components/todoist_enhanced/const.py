@@ -1,8 +1,8 @@
-"""Constants for the Todoist Kiosk integration."""
+"""Constants for the Todoist Enhanced integration."""
 
 from datetime import timedelta
 
-DOMAIN = "todoist_kiosk"
+DOMAIN = "todoist_enhanced"
 
 CONF_API_TOKEN = "api_token"
 

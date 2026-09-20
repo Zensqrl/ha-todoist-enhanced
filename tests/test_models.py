@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from custom_components.todoist_kiosk.models import (
+from custom_components.todoist_enhanced.models import (
     MetadataSnapshot,
     TodoistFilter,
     TodoistProject,
@@ -19,7 +19,7 @@ class ModelsTests(unittest.TestCase):
         self.snapshot = MetadataSnapshot.build(
             [TodoistProject("p1", "Home")],
             [TodoistSection("s1", "Maintenance", "p1")],
-            [TodoistFilter("f1", "Kiosk Upcoming", "today | overdue")],
+            [TodoistFilter("f1", "Enhanced Upcoming", "today | overdue")],
         )
 
     def test_task_is_enriched_and_normalized(self) -> None:
@@ -66,16 +66,23 @@ class ModelsTests(unittest.TestCase):
 
     def test_deadline_without_due_is_preserved(self) -> None:
         task = normalize_task(
-            {"id": "t3", "content": "Deadline only", "deadline": {"date": "2026-09-01"}},
+            {
+                "id": "t3",
+                "content": "Deadline only",
+                "deadline": {"date": "2026-09-01"},
+            },
             self.snapshot,
         )
         self.assertIsNone(task["due"])
         self.assertEqual(task["deadline"]["date"], "2026-09-01")
 
     def test_saved_filter_resolves_by_id_or_case_insensitive_name(self) -> None:
-        self.assertEqual(resolve_saved_filter(self.snapshot, filter_id="f1").query, "today | overdue")
         self.assertEqual(
-            resolve_saved_filter(self.snapshot, filter_name="kiosk upcoming").id, "f1"
+            resolve_saved_filter(self.snapshot, filter_id="f1").query, "today | overdue"
+        )
+        self.assertEqual(
+            resolve_saved_filter(self.snapshot, filter_name="enhanced upcoming").id,
+            "f1",
         )
 
     def test_missing_or_duplicate_saved_filter_is_rejected(self) -> None:

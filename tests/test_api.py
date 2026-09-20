@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import unittest
-from typing import Any
+from typing import Any, Self
 
-from custom_components.todoist_kiosk.api import (
+from custom_components.todoist_enhanced.api import (
     TodoistAuthError,
+    TodoistEnhancedApi,
     TodoistInvalidFilterError,
-    TodoistKioskApi,
     TodoistNotFoundError,
     TodoistProjectNotFoundError,
     TodoistQuickAddError,
@@ -26,10 +26,10 @@ class FakeResponse:
         self._text = payload if isinstance(payload, str) else json.dumps(payload)
         self.headers = headers or {}
 
-    async def __aenter__(self) -> FakeResponse:
+    async def __aenter__(self) -> Self:
         return self
 
-    async def __aexit__(self, *args: Any) -> None:
+    async def __aexit__(self, *args: object) -> None:
         return None
 
     async def text(self) -> str:
@@ -49,7 +49,7 @@ class FakeSession:
         return response
 
 
-class TodoistKioskApiTests(unittest.IsolatedAsyncioTestCase):
+class TodoistEnhancedApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_filtered_tasks_follow_all_cursor_pages(self) -> None:
         session = FakeSession(
             [
@@ -57,7 +57,7 @@ class TodoistKioskApiTests(unittest.IsolatedAsyncioTestCase):
                 FakeResponse(200, {"results": [{"id": "two"}], "next_cursor": None}),
             ]
         )
-        api = TodoistKioskApi(session, "secret")
+        api = TodoistEnhancedApi(session, "secret")
         query = (
             "(due before: first day | deadline before: first day) & "
             "(!#Daily Checklist | today)"
@@ -81,7 +81,7 @@ class TodoistKioskApiTests(unittest.IsolatedAsyncioTestCase):
                 FakeResponse(200, {"results": [{"id": "two"}], "next_cursor": None}),
             ]
         )
-        api = TodoistKioskApi(session, "secret")
+        api = TodoistEnhancedApi(session, "secret")
 
         tasks = await api.get_tasks_by_project("project-1")
 
@@ -94,7 +94,9 @@ class TodoistKioskApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_project_maps_400_and_404(self) -> None:
         for status in (400, 404):
             with self.subTest(status=status):
-                api = TodoistKioskApi(FakeSession([FakeResponse(status, {})]), "secret")
+                api = TodoistEnhancedApi(
+                    FakeSession([FakeResponse(status, {})]), "secret"
+                )
                 with self.assertRaises(TodoistProjectNotFoundError) as raised:
                     await api.get_tasks_by_project("deleted")
                 self.assertEqual(raised.exception.code, "project_not_found")
@@ -113,15 +115,13 @@ class TodoistKioskApiTests(unittest.IsolatedAsyncioTestCase):
                 ),
             ]
         )
-        api = TodoistKioskApi(session, "secret")
+        api = TodoistEnhancedApi(session, "secret")
 
         projects = await api.get_projects()
         sections = await api.get_sections()
 
         self.assertEqual((projects[0].id, projects[0].name), ("p1", "Home"))
-        self.assertEqual(
-            (sections[0].id, sections[0].project_id), ("s1", "p1")
-        )
+        self.assertEqual((sections[0].id, sections[0].project_id), ("s1", "p1"))
 
     async def test_saved_filters_ignore_deleted_values(self) -> None:
         session = FakeSession(
@@ -142,7 +142,7 @@ class TodoistKioskApiTests(unittest.IsolatedAsyncioTestCase):
                 )
             ]
         )
-        api = TodoistKioskApi(session, "secret")
+        api = TodoistEnhancedApi(session, "secret")
 
         filters = await api.get_saved_filters()
 
@@ -151,21 +151,25 @@ class TodoistKioskApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(request_data["resource_types"]), ["filters"])
 
     async def test_invalid_filter_maps_400(self) -> None:
-        api = TodoistKioskApi(
+        api = TodoistEnhancedApi(
             FakeSession([FakeResponse(400, {"error": "Invalid query"})]), "secret"
         )
-        with self.assertRaisesRegex(TodoistInvalidFilterError, "Invalid query"):
+        with self.assertRaisesRegex(
+            TodoistInvalidFilterError, "Todoist rejected the request"
+        ):
             await api.get_tasks_by_filter("(")
 
     async def test_auth_errors_are_distinct(self) -> None:
         for status in (401, 403):
             with self.subTest(status=status):
-                api = TodoistKioskApi(FakeSession([FakeResponse(status, {})]), "secret")
+                api = TodoistEnhancedApi(
+                    FakeSession([FakeResponse(status, {})]), "secret"
+                )
                 with self.assertRaises(TodoistAuthError):
                     await api.validate_token()
 
     async def test_rate_limit_preserves_retry_after(self) -> None:
-        api = TodoistKioskApi(
+        api = TodoistEnhancedApi(
             FakeSession([FakeResponse(429, {}, {"Retry-After": "17"})]), "secret"
         )
         with self.assertRaises(TodoistRateLimitError) as raised:
@@ -175,13 +179,13 @@ class TodoistKioskApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_server_and_network_errors_are_unavailable(self) -> None:
         for response in (FakeResponse(503, {}), OSError("offline")):
             with self.subTest(response=response):
-                api = TodoistKioskApi(FakeSession([response]), "secret")
+                api = TodoistEnhancedApi(FakeSession([response]), "secret")
                 with self.assertRaises(TodoistUnavailableError):
                     await api.get_projects()
 
     async def test_close_task_uses_encoded_id_and_no_delete(self) -> None:
         session = FakeSession([FakeResponse(200, None)])
-        api = TodoistKioskApi(session, "secret")
+        api = TodoistEnhancedApi(session, "secret")
 
         await api.close_task("task/id")
 
@@ -190,13 +194,13 @@ class TodoistKioskApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(url.endswith("/tasks/task%2Fid/close"))
 
     async def test_missing_task_maps_404(self) -> None:
-        api = TodoistKioskApi(FakeSession([FakeResponse(404, {})]), "secret")
+        api = TodoistEnhancedApi(FakeSession([FakeResponse(404, {})]), "secret")
         with self.assertRaises(TodoistNotFoundError):
             await api.close_task("gone")
 
     async def test_quick_add_sends_natural_language_and_meta(self) -> None:
         session = FakeSession([FakeResponse(200, {"id": "new-task"})])
-        api = TodoistKioskApi(session, "secret")
+        api = TodoistEnhancedApi(session, "secret")
 
         result = await api.quick_add_task("Buy filter tomorrow #Home p2")
 
@@ -207,7 +211,7 @@ class TodoistKioskApiTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_quick_add_maps_400(self) -> None:
-        api = TodoistKioskApi(FakeSession([FakeResponse(400, {})]), "secret")
+        api = TodoistEnhancedApi(FakeSession([FakeResponse(400, {})]), "secret")
         with self.assertRaises(TodoistQuickAddError):
             await api.quick_add_task("bad")
 

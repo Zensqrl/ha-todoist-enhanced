@@ -1,9 +1,10 @@
-"""Stable data models exposed by Todoist Kiosk."""
+"""Stable data models exposed by Todoist Enhanced."""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from typing import Any, Mapping
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 
 def _string_or_none(value: Any) -> str | None:
@@ -68,6 +69,7 @@ class MetadataSnapshot:
     sections_by_id: dict[str, TodoistSection]
     filters_by_id: dict[str, TodoistFilter]
     filter_ids_by_name: dict[str, tuple[str, ...]]
+    labels: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def build(
@@ -75,10 +77,13 @@ class MetadataSnapshot:
         projects: list[TodoistProject],
         sections: list[TodoistSection],
         filters: list[TodoistFilter],
+        labels: list[dict[str, Any]] | None = None,
     ) -> MetadataSnapshot:
         ids_by_name: dict[str, list[str]] = {}
         for saved_filter in filters:
-            ids_by_name.setdefault(saved_filter.name.casefold(), []).append(saved_filter.id)
+            ids_by_name.setdefault(saved_filter.name.casefold(), []).append(
+                saved_filter.id
+            )
 
         return cls(
             projects_by_id={project.id: project for project in projects},
@@ -87,6 +92,7 @@ class MetadataSnapshot:
             filter_ids_by_name={
                 name: tuple(filter_ids) for name, filter_ids in ids_by_name.items()
             },
+            labels=labels or [],
         )
 
 
@@ -126,10 +132,12 @@ def _normalize_due(value: Any) -> dict[str, Any] | None:
         raw_date = raw_date[:10]
 
     return {
+        "kind": "datetime" if raw_datetime else "date",
         "date": raw_date,
         "datetime": raw_datetime,
+        "timezone": _string_or_none(value.get("timezone")),
         "string": _string_or_none(value.get("string")),
-        "is_recurring": bool(value.get("is_recurring", False)),
+        "is_recurring": value.get("is_recurring"),
         "lang": _string_or_none(value.get("lang")),
     }
 
@@ -138,6 +146,7 @@ def _normalize_deadline(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, Mapping):
         return None
     return {
+        "kind": "date",
         "date": _string_or_none(value.get("date")),
         "lang": _string_or_none(value.get("lang")),
     }
@@ -164,22 +173,39 @@ def normalize_task(
 
     labels = value.get("labels")
     if not isinstance(labels, list):
-        labels = []
+        labels = None
+    priority = value.get("priority")
+    label_ids = {label["name"]: label["id"] for label in metadata.labels}
+    completed = value.get("checked", value.get("is_completed"))
+    if completed is None and value.get("completed_at") is not None:
+        completed = True
 
     return {
         "id": task_id,
         "content": str(value.get("content") or ""),
-        "description": str(value.get("description") or ""),
+        "description": value.get("description"),
         "project_id": project_id,
         "project_name": project.name if project else None,
         "section_id": section_id,
         "section_name": section.name if section else None,
         "parent_id": _string_or_none(value.get("parent_id")),
-        "labels": [str(label) for label in labels],
-        "priority": value.get("priority"),
+        "labels": labels,
+        "label_details": [{"name": name, "id": label_ids.get(name)} for name in labels]
+        if labels is not None
+        else None,
+        "priority": priority,
+        "display_priority": 5 - priority
+        if type(priority) is int and 1 <= priority <= 4
+        else None,
         "due": _normalize_due(value.get("due")),
         "deadline": _normalize_deadline(value.get("deadline")),
         "duration": _normalize_duration(value.get("duration")),
-        "is_completed": bool(value.get("checked", False)),
+        "is_completed": completed,
+        "is_uncompletable": value.get("is_uncompletable"),
+        "assignee_id": _string_or_none(
+            value.get("responsible_uid", value.get("assignee_id"))
+        ),
+        "created_at": value.get("added_at", value.get("created_at")),
+        "updated_at": value.get("updated_at"),
         "url": _string_or_none(value.get("url")),
     }

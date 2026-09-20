@@ -1,6 +1,6 @@
-# Todoist Kiosk for Home Assistant — Codex Implementation Brief
+# Todoist Enhanced for Home Assistant — Codex Implementation Brief
 
-**Status:** Initial implementation specification  
+**Status:** Historical initial specification; superseded by README.md and docs/data-contract.md for the Daily Decision Dashboard helper release.  
 **Prepared:** 2026-08-18  
 **Primary goal:** Build a focused Todoist experience inside a Home Assistant dashboard/kiosk without attempting to reproduce the full Todoist application.
 
@@ -50,7 +50,7 @@ Use this architecture:
 │ integration            │
 │                        │
 │ custom_components/     │
-│ todoist_kiosk/         │
+│ todoist_enhanced/         │
 │                        │
 │ - credentials          │
 │ - API client           │
@@ -65,7 +65,7 @@ Use this architecture:
 ┌────────────────────────┐
 │ Lovelace custom card   │
 │                        │
-│ todoist-kiosk-card     │
+│ todoist-enhanced-card     │
 │                        │
 │ - render tasks         │
 │ - user interaction     │
@@ -141,9 +141,9 @@ The card already includes useful UI code for:
 
 **Fork/extend this card rather than rebuilding the entire frontend from scratch.**
 
-The frontend should gradually stop depending on the generic Home Assistant `todo/item/list` data model for Todoist Kiosk mode and instead call WebSocket commands exposed by the new `todoist_kiosk` integration.
+The frontend should gradually stop depending on the generic Home Assistant `todo/item/list` data model for Todoist Enhanced mode and instead call WebSocket commands exposed by the new `todoist_enhanced` integration.
 
-Do not remove generic behavior unnecessarily if it can coexist cleanly. However, prioritize a simple working Todoist Kiosk mode over maintaining every legacy option in the first implementation.
+Do not remove generic behavior unnecessarily if it can coexist cleanly. However, prioritize a simple working Todoist Enhanced mode over maintaining every legacy option in the first implementation.
 
 ---
 
@@ -349,19 +349,19 @@ For the first vertical slice, it is acceptable to configure the raw filter expre
 Suggested domain:
 
 ```text
-todoist_kiosk
+todoist_enhanced
 ```
 
 Suggested directory:
 
 ```text
-custom_components/todoist_kiosk/
+custom_components/todoist_enhanced/
 ```
 
 Suggested initial structure:
 
 ```text
-custom_components/todoist_kiosk/
+custom_components/todoist_enhanced/
 ├── __init__.py
 ├── manifest.json
 ├── const.py
@@ -403,7 +403,7 @@ Create a small typed async Todoist API client.
 Conceptual interface:
 
 ```python
-class TodoistKioskApi:
+class TodoistEnhancedApi:
     async def get_tasks_by_filter(self, query: str) -> list[TodoistTask]:
         ...
 
@@ -522,7 +522,7 @@ Request:
 
 ```json
 {
-  "type": "todoist_kiosk/tasks",
+  "type": "todoist_enhanced/tasks",
   "filter": "(due before: first day | deadline before: first day) & (!#Daily Checklist | today)"
 }
 ```
@@ -549,7 +549,7 @@ Alternative after saved-filter support:
 
 ```json
 {
-  "type": "todoist_kiosk/tasks",
+  "type": "todoist_enhanced/tasks",
   "filter_id": "4638878"
 }
 ```
@@ -558,8 +558,8 @@ or:
 
 ```json
 {
-  "type": "todoist_kiosk/tasks",
-  "filter_name": "Kiosk Upcoming"
+  "type": "todoist_enhanced/tasks",
+  "filter_name": "Enhanced Upcoming"
 }
 ```
 
@@ -571,7 +571,7 @@ Request:
 
 ```json
 {
-  "type": "todoist_kiosk/filters"
+  "type": "todoist_enhanced/filters"
 }
 ```
 
@@ -582,7 +582,7 @@ Response:
   "filters": [
     {
       "id": "4638878",
-      "name": "Kiosk Upcoming",
+      "name": "Enhanced Upcoming",
       "query": "..."
     }
   ]
@@ -595,7 +595,7 @@ Request:
 
 ```json
 {
-  "type": "todoist_kiosk/complete_task",
+  "type": "todoist_enhanced/complete_task",
   "task_id": "6XGgmFVcrG5RRjVr"
 }
 ```
@@ -613,7 +613,7 @@ Request:
 
 ```json
 {
-  "type": "todoist_kiosk/quick_add",
+  "type": "todoist_enhanced/quick_add",
   "text": "Buy furnace filter tomorrow #Home"
 }
 ```
@@ -626,7 +626,7 @@ Optional:
 
 ```json
 {
-  "type": "todoist_kiosk/refresh_metadata"
+  "type": "todoist_enhanced/refresh_metadata"
 }
 ```
 
@@ -659,7 +659,7 @@ Network I/O handlers must use Home Assistant's async WebSocket response pattern.
 Suggested eventual card type:
 
 ```yaml
-type: custom:todoist-kiosk-card
+type: custom:todoist-enhanced-card
 ```
 
 It may begin as a fork/mode of `todoist-task-flow`.
@@ -703,7 +703,7 @@ On checkbox/tap:
 
 ```javascript
 hass.callWS({
-  type: "todoist_kiosk/complete_task",
+  type: "todoist_enhanced/complete_task",
   task_id: task.id
 });
 ```
@@ -728,11 +728,11 @@ hass.callWS({
 });
 ```
 
-with the new integration's command when the card is in Todoist Kiosk mode:
+with the new integration's command when the card is in Todoist Enhanced mode:
 
 ```javascript
 hass.callWS({
-  type: "todoist_kiosk/tasks",
+  type: "todoist_enhanced/tasks",
   filter_name: this.config.filter_name
 });
 ```
@@ -741,7 +741,7 @@ or raw-query mode:
 
 ```javascript
 hass.callWS({
-  type: "todoist_kiosk/tasks",
+  type: "todoist_enhanced/tasks",
   filter: this.config.filter
 });
 ```
@@ -754,7 +754,7 @@ For MVP:
 [ Add a task...                               ] [+]
 ```
 
-Send the full input to `todoist_kiosk/quick_add`.
+Send the full input to `todoist_enhanced/quick_add`.
 
 Example user entry:
 
@@ -787,7 +787,7 @@ A 5–10 minute automatic refresh is reasonable for the first implementation, wi
 Initial raw-query configuration could look like:
 
 ```yaml
-type: custom:todoist-kiosk-card
+type: custom:todoist-enhanced-card
 title: Tasks
 filter: >-
   (due before: first day | deadline before: first day) &
@@ -805,9 +805,9 @@ allow_quick_add: true
 Once saved filters are implemented, prefer:
 
 ```yaml
-type: custom:todoist-kiosk-card
+type: custom:todoist-enhanced-card
 title: Tasks
-filter_name: Kiosk Upcoming
+filter_name: Enhanced Upcoming
 allow_complete: true
 allow_quick_add: true
 ```
@@ -964,7 +964,7 @@ The MVP is complete when all of the following are true:
 
 ### Setup
 
-- The `todoist_kiosk` integration can be installed in Home Assistant.
+- The `todoist_enhanced` integration can be installed in Home Assistant.
 - A user can configure it with a Todoist API token.
 - Invalid tokens fail configuration cleanly.
 
@@ -1086,12 +1086,12 @@ Before editing:
 
 Do not modify unrelated Home Assistant configuration.
 
-### Step 2 — Scaffold `todoist_kiosk`
+### Step 2 — Scaffold `todoist_enhanced`
 
 Create the custom integration skeleton:
 
 ```text
-custom_components/todoist_kiosk/
+custom_components/todoist_enhanced/
 ```
 
 Implement:
@@ -1131,7 +1131,7 @@ Verify project names appear correctly.
 Implement:
 
 ```text
-todoist_kiosk/tasks
+todoist_enhanced/tasks
 ```
 
 Call it from browser developer tools or a minimal test card and verify the result.
@@ -1157,7 +1157,7 @@ Display:
 Implement backend:
 
 ```text
-todoist_kiosk/complete_task
+todoist_enhanced/complete_task
 ```
 
 Use:
@@ -1175,7 +1175,7 @@ Test both one-time and recurring tasks.
 Implement:
 
 ```text
-todoist_kiosk/quick_add
+todoist_enhanced/quick_add
 ```
 
 Connect the existing add-task input to it.
@@ -1396,7 +1396,7 @@ Begin by inspecting the current Home Assistant environment and the existing `tod
 ```text
 Todoist filter
     ↓
-todoist_kiosk backend
+todoist_enhanced backend
     ↓
 Home Assistant WebSocket
     ↓
